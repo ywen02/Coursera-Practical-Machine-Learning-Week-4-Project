@@ -1,0 +1,106 @@
+---
+title: "Coursera Practical Machine Learning Week 4 Project"
+author: "Yuhui Wen"
+output:
+  html_document:
+    keep_md: yes
+  pdf_document: default
+Time: 06-04-2018
+---
+### Background and Data Load:
+##### One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants.
+The goal of your project is to predict the manner in which they did the exercise. This is the "classe" variable in the training set. The participants were each instructed to perform the exercise either properly (Class A) or in a way which replicated 4 common weightlifting mistakes (Classes B, C, D, and E).
+
+```{r cache=TRUE, echo=TRUE}
+library(caret)
+library(ggplot2)
+library(rattle)
+
+set.seed(12345)
+training <- read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"), header=TRUE)
+testing <-read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"),header=TRUE)
+
+```
+
+*** Data Explore
+```{r cache=TRUE, echo=TRUE,results='hide'}
+dim(training)
+str(training)
+```
+```{r cache=TRUE, echo=TRUE}
+table(colSums(is.na(training))/length(training$user_name))
+```
+By glancing the data, I notice that the first 7 columns are the user and exercise time info. This is not related to what we are trying to predict. So I will remove it from the data. 
+Also, I notice there are 67 columns have 97% of the data is NA or blank. I will exclude these columns too.
+```{r cache=TRUE, echo=TRUE}
+
+NAremoveColumn <- which(colSums(is.na(training)|training=="" )>0.9*dim(training)[1])
+trainingClean <- training[,-NAremoveColumn]
+trainingCleanFinal <- trainingClean[,-c(1:7)]
+
+
+NAremoveColumn <- which(colSums(is.na(testing)|testing=="")>0.9*dim(training)[1]) 
+testingClean <- testing[,-NAremoveColumn]
+testingCleanFinal <- testing[,-c(1:7)]
+
+dim(trainingCleanFinal)
+dim(testingCleanFinal)
+```
+
+I want to split the training set one more time to train and test set. This way we can validate different models and did not use the final test set until the very end. 
+```{r cache=TRUE, echo=TRUE}
+set.seed(12345)
+inTrain <- createDataPartition(trainingCleanFinal$classe, p=0.75, list=FALSE)
+train1<-  trainingCleanFinal[inTrain,]
+test1 <- trainingCleanFinal[-inTrain,]
+```
+
+#### This is a classification predict problem. In the following sections, we will test 3 different models : classification tree, random forest and gradient boosting method.
+
+n order to limit the effects of overfitting, and improve the efficicency of the models, we will use the *cross-validation technique. We will use 5 folds 
+
+#### 1. Decision Tree
+
+```{r cache=TRUE, echo=TRUE}
+trControl <- trainControl(method="cv", number=5)
+modFit_tree <- train(classe ~.,data= train1, method="rpart", trControl=trControl)
+fancyRpartPlot(modFit_tree$finalModel)
+testpred <- predict(modFit_tree,newdata=test1)
+confusionMatrix <- confusionMatrix(test1$classe,testpred)
+confusionMatrix$overall
+```
+
+We notice that the accuary of this model is only around 54%. This means almost half of the time new classe prediction will be wrong.
+
+#### 2. Random Forest 
+```{r cache=TRUE, echo=TRUE}
+modFit_RF <- train(classe ~., data=train1, method="rf", trControl=trControl,verbose=FALSE)
+print(modFit_RF)
+plot(modFit_RF,main="Accuracy of Random Forest Model by Number of Predictors")
+testpred <- predict(modFit_RF,newdata=test1)
+confusionMatrix <- confusionMatrix(test1$classe,testpred)
+confusionMatrix$overall
+
+MostImpVars <- varImp(modFit_RF)
+MostImpVars
+```
+For random forest, the accury is around 99%, which is very good. But from the graph above we can see that the number of predictors for the highest accury is 27. This suggest that there are some dependence between the predictors.At the end, varImp give us 20 most important variables.
+
+#### 3.Gradient Boosting Method
+```{r cache=TRUE, echo=TRUE}
+modFit_GBM <- train(classe~., data=train1, method="gbm", trControl=trControl, verbose=FALSE)
+print(modFit_GBM)
+plot(modFit_GBM)
+testpred <- predict(modFit_GBM,newdata=test1)
+confusionMatrix <- confusionMatrix(test1$classe,testpred)
+confusionMatrix$overall
+```
+
+We can see that the random forest have the highest accuray 99%, then gradient boosting, around 95%. Decision tree has the lowest 55%.
+
+### Conclusion:
+We will use the random forest model to predict classe in the test set.
+```{r cache=TRUE, echo=TRUE}
+FinalTestPred <- predict(modFit_RF,newdata=testingCleanFinal)
+FinalTestPred
+```
